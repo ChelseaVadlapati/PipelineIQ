@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+*.egg-info/
+
+# Azure Functions
+local.settings.json
+.python_packages/
+
+# Azurite (local storage emulator)
+__azurite_db_*.json
+AzuriteConfig
+blobstorage/
+queuestorage/
+
+# Node / React
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.backup
+infra/*.tfvars
+infra/.terraform.lock.hcl
+
+# IDE
+.vscode/
+.idea/
+*.DS_Store

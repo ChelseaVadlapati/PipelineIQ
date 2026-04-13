@@ -1,0 +1,486 @@
+# azure-pipelines.yml
+#
+# CI/CD for PipelineIQ
+#
+# Stages:
+#   Test        — lint + pytest (backend) + tsc + vitest (frontend)  [all branches + PRs]
+#   Build       — tsc + vite build + zip backend                     [main only]
+#   DeployDev   — Bicep infra + func publish + SWA deploy            [main only]
+#   DeployProd  — same, behind manual approval gate                  [main only]
+#
+# One-time setup in Azure DevOps before this pipeline will work:
+#
+#   Variable groups (Pipelines → Library):
+#     pipelineiq-dev-secrets
+#       AZURE_DEVOPS_PAT   PAT scoped to Build (Read) on the org being monitored
+#       WEBHOOK_SECRET     shared secret for the /api/webhook endpoint
+#     pipelineiq-prod-secrets  (same keys, prod values)
+#
+#   Service connections (Project Settings → Service Connections, type = Azure Resource Manager):
+#     azure-dev   scoped to subscription / rg-pipelineiq-dev
+#     azure-prod  scoped to subscription / rg-pipelineiq-prod
+#
+#   Environments (Pipelines → Environments):
+#     pipelineiq-dev   (no approval needed)
+#     pipelineiq-prod  add an Approval check here for the manual gate
+
+trigger:
+  branches:
+    include: [main]
+  paths:
+    exclude:
+      - "**/*.md"
+
+pr:
+  branches:
+    include: [main]
+
+variables:
+  pythonVersion: "3.11"
+  nodeVersion: "20.x"
+  backendDir: "$(Build.SourcesDirectory)/backend"
+  frontendDir: "$(Build.SourcesDirectory)/frontend"
+  infraDir: "$(Build.SourcesDirectory)/infra"
+
+# ── Stage 1: Test ─────────────────────────────────────────────────────────────
+
+stages:
+  - stage: Test
+    displayName: Test
+    jobs:
+
+      - job: BackendLintAndTest
+        displayName: Backend — lint + pytest
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: UsePythonVersion@0
+            displayName: Set Python $(pythonVersion)
+            inputs:
+              versionSpec: $(pythonVersion)
+
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -r requirements-dev.txt
+              pip install ruff
+            workingDirectory: $(backendDir)
+            displayName: Install dependencies
+
+          - script: ruff check .
+            workingDirectory: $(backendDir)
+            displayName: Lint (ruff)
+
+          - script: |
+              pytest --tb=short \
+                     --junitxml=$(Common.TestResultsDirectory)/pytest.xml \
+                     --cov=. \
+                     --cov-report=xml:$(Common.TestResultsDirectory)/coverage.xml \
+                     --cov-report=term-missing
+            workingDirectory: $(backendDir)
+            displayName: Run pytest
+
+          - task: PublishTestResults@2
+            condition: always()
+            displayName: Publish test results
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: "$(Common.TestResultsDirectory)/pytest.xml"
+              testRunTitle: Backend Tests
+
+          - task: PublishCodeCoverageResults@2
+            condition: always()
+            displayName: Publish coverage
+            inputs:
+              codeCoverageTool: Cobertura
+              summaryFileLocation: "$(Common.TestResultsDirectory)/coverage.xml"
+
+      - job: FrontendLintAndTest
+        displayName: Frontend — tsc + vitest
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: NodeTool@0
+            displayName: Set Node $(nodeVersion)
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          - script: npm ci
+            workingDirectory: $(frontendDir)
+            displayName: Install dependencies
+
+          - script: npx tsc --noEmit
+            workingDirectory: $(frontendDir)
+            displayName: Type-check (tsc)
+
+          - script: npm run test:coverage
+            workingDirectory: $(frontendDir)
+            displayName: Run vitest + coverage
+
+          - task: PublishCodeCoverageResults@2
+            condition: always()
+            displayName: Publish coverage
+            inputs:
+              codeCoverageTool: Cobertura
+              summaryFileLocation: "$(frontendDir)/coverage/cobertura-coverage.xml"
+
+# ── Stage 2: Build ────────────────────────────────────────────────────────────
+
+  - stage: Build
+    displayName: Build
+    dependsOn: Test
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+
+      - job: BuildFrontend
+        displayName: Build React frontend
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          - script: npm ci
+            workingDirectory: $(frontendDir)
+            displayName: Install dependencies
+
+          - script: npm run build
+            workingDirectory: $(frontendDir)
+            displayName: vite build
+            env:
+              VITE_API_BASE_URL: "/api"
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish frontend artifact
+            inputs:
+              targetPath: "$(frontendDir)/dist"
+              artifact: frontend-dist
+
+      - job: PackageBackend
+        displayName: Package backend
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+
+          # Install deps into .python_packages so they're included in the zip
+          # (required for Linux Consumption plan without remote build)
+          - script: |
+              pip install -r requirements.txt \
+                --target .python_packages/lib/site-packages \
+                --upgrade
+            workingDirectory: $(backendDir)
+            displayName: Install production dependencies
+
+          - task: ArchiveFiles@2
+            displayName: Zip backend
+            inputs:
+              rootFolderOrFile: $(backendDir)
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: "$(Build.ArtifactStagingDirectory)/backend.zip"
+              replaceExistingArchive: true
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish backend artifact
+            inputs:
+              targetPath: "$(Build.ArtifactStagingDirectory)/backend.zip"
+              artifact: backend-zip
+
+# ── Stage 3: Deploy Dev ───────────────────────────────────────────────────────
+
+  - stage: DeployDev
+    displayName: "Deploy → Dev"
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    variables:
+      - group: pipelineiq-dev-secrets
+      - name: resourceGroup
+        value: rg-pipelineiq-dev
+      - name: environment
+        value: dev
+
+    jobs:
+      - deployment: InfraDev
+        displayName: "Bicep infra (dev)"
+        pool:
+          vmImage: ubuntu-latest
+        environment: pipelineiq-dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: AzureCLI@2
+                  displayName: Create resource group
+                  inputs:
+                    azureSubscription: azure-dev
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az group create \
+                        --name $(resourceGroup) \
+                        --location eastus \
+                        --tags project=PipelineIQ environment=$(environment)
+
+                - task: AzureCLI@2
+                  displayName: Deploy Bicep
+                  inputs:
+                    azureSubscription: azure-dev
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az deployment group create \
+                        --resource-group $(resourceGroup) \
+                        --template-file $(infraDir)/main.bicep \
+                        --parameters $(infraDir)/parameters/dev.bicepparam \
+                        --parameters \
+                          devOpsPat="$(AZURE_DEVOPS_PAT)" \
+                          webhookSecret="$(WEBHOOK_SECRET)"
+
+      - deployment: BackendDev
+        displayName: "Deploy backend (dev)"
+        dependsOn: InfraDev
+        pool:
+          vmImage: ubuntu-latest
+        environment: pipelineiq-dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - download: current
+                  artifact: backend-zip
+                  displayName: Download backend artifact
+
+                - task: AzureCLI@2
+                  displayName: Get Function App name
+                  inputs:
+                    azureSubscription: azure-dev
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      name=$(az deployment group show \
+                        --resource-group $(resourceGroup) \
+                        --name main \
+                        --query properties.outputs.functionAppName.value \
+                        --output tsv)
+                      echo "##vso[task.setvariable variable=functionAppName]$name"
+
+                - task: AzureFunctionApp@2
+                  displayName: Publish Azure Functions
+                  inputs:
+                    azureSubscription: azure-dev
+                    appType: functionAppLinux
+                    appName: $(functionAppName)
+                    package: "$(Pipeline.Workspace)/backend-zip/backend.zip"
+                    runtimeStack: PYTHON|3.11
+                    deploymentMethod: zipDeploy
+
+                - task: AzureCLI@2
+                  displayName: Smoke test — GET /api/analyses
+                  inputs:
+                    azureSubscription: azure-dev
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      key=$(az functionapp keys list \
+                        --resource-group $(resourceGroup) \
+                        --name $(functionAppName) \
+                        --query functionKeys.default \
+                        --output tsv)
+                      status=$(curl -s -o /dev/null -w "%{http_code}" \
+                        "https://$(functionAppName).azurewebsites.net/api/analyses?code=$key")
+                      echo "GET /api/analyses → HTTP $status"
+                      [ "$status" = "200" ] || exit 1
+
+      - deployment: FrontendDev
+        displayName: "Deploy frontend (dev)"
+        dependsOn: InfraDev
+        pool:
+          vmImage: ubuntu-latest
+        environment: pipelineiq-dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - download: current
+                  artifact: frontend-dist
+                  displayName: Download frontend artifact
+
+                - task: AzureCLI@2
+                  displayName: Get SWA deployment token
+                  inputs:
+                    azureSubscription: azure-dev
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      token=$(az deployment group show \
+                        --resource-group $(resourceGroup) \
+                        --name main \
+                        --query properties.outputs.swaDeploymentToken.value \
+                        --output tsv)
+                      echo "##vso[task.setvariable variable=swaToken;issecret=true]$token"
+
+                - task: AzureStaticWebApp@0
+                  displayName: Deploy to Static Web Apps
+                  inputs:
+                    app_location: "$(Pipeline.Workspace)/frontend-dist"
+                    skip_app_build: true
+                    output_location: ""
+                    azure_static_web_apps_api_token: $(swaToken)
+
+# ── Stage 4: Deploy Prod ──────────────────────────────────────────────────────
+
+  - stage: DeployProd
+    displayName: "Deploy → Prod"
+    dependsOn: DeployDev
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    variables:
+      - group: pipelineiq-prod-secrets
+      - name: resourceGroup
+        value: rg-pipelineiq-prod
+      - name: environment
+        value: prod
+
+    jobs:
+      - deployment: InfraProd
+        displayName: "Bicep infra (prod)"
+        pool:
+          vmImage: ubuntu-latest
+        # Approval check must be configured on the 'pipelineiq-prod' Environment
+        # in Azure DevOps (Pipelines → Environments → pipelineiq-prod → Approvals).
+        environment: pipelineiq-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: AzureCLI@2
+                  displayName: Create resource group
+                  inputs:
+                    azureSubscription: azure-prod
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az group create \
+                        --name $(resourceGroup) \
+                        --location eastus \
+                        --tags project=PipelineIQ environment=$(environment)
+
+                - task: AzureCLI@2
+                  displayName: Deploy Bicep
+                  inputs:
+                    azureSubscription: azure-prod
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az deployment group create \
+                        --resource-group $(resourceGroup) \
+                        --template-file $(infraDir)/main.bicep \
+                        --parameters $(infraDir)/parameters/prod.bicepparam \
+                        --parameters \
+                          devOpsPat="$(AZURE_DEVOPS_PAT)" \
+                          webhookSecret="$(WEBHOOK_SECRET)"
+
+      - deployment: BackendProd
+        displayName: "Deploy backend (prod)"
+        dependsOn: InfraProd
+        pool:
+          vmImage: ubuntu-latest
+        environment: pipelineiq-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - download: current
+                  artifact: backend-zip
+                  displayName: Download backend artifact
+
+                - task: AzureCLI@2
+                  displayName: Get Function App name
+                  inputs:
+                    azureSubscription: azure-prod
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      name=$(az deployment group show \
+                        --resource-group $(resourceGroup) \
+                        --name main \
+                        --query properties.outputs.functionAppName.value \
+                        --output tsv)
+                      echo "##vso[task.setvariable variable=functionAppName]$name"
+
+                - task: AzureFunctionApp@2
+                  displayName: Publish Azure Functions
+                  inputs:
+                    azureSubscription: azure-prod
+                    appType: functionAppLinux
+                    appName: $(functionAppName)
+                    package: "$(Pipeline.Workspace)/backend-zip/backend.zip"
+                    runtimeStack: PYTHON|3.11
+                    deploymentMethod: zipDeploy
+
+                - task: AzureCLI@2
+                  displayName: Smoke test — GET /api/analyses
+                  inputs:
+                    azureSubscription: azure-prod
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      key=$(az functionapp keys list \
+                        --resource-group $(resourceGroup) \
+                        --name $(functionAppName) \
+                        --query functionKeys.default \
+                        --output tsv)
+                      status=$(curl -s -o /dev/null -w "%{http_code}" \
+                        "https://$(functionAppName).azurewebsites.net/api/analyses?code=$key")
+                      echo "GET /api/analyses → HTTP $status"
+                      [ "$status" = "200" ] || exit 1
+
+      - deployment: FrontendProd
+        displayName: "Deploy frontend (prod)"
+        dependsOn: InfraProd
+        pool:
+          vmImage: ubuntu-latest
+        environment: pipelineiq-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - download: current
+                  artifact: frontend-dist
+                  displayName: Download frontend artifact
+
+                - task: AzureCLI@2
+                  displayName: Get SWA deployment token
+                  inputs:
+                    azureSubscription: azure-prod
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      token=$(az deployment group show \
+                        --resource-group $(resourceGroup) \
+                        --name main \
+                        --query properties.outputs.swaDeploymentToken.value \
+                        --output tsv)
+                      echo "##vso[task.setvariable variable=swaToken;issecret=true]$token"
+
+                - task: AzureStaticWebApp@0
+                  displayName: Deploy to Static Web Apps
+                  inputs:
+                    app_location: "$(Pipeline.Workspace)/frontend-dist"
+                    skip_app_build: true
+                    output_location: ""
+                    azure_static_web_apps_api_token: $(swaToken)
