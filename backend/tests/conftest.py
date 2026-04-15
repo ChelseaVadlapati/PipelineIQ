@@ -2,7 +2,6 @@
 Shared fixtures for all backend tests.
 """
 
-import os
 import pytest
 
 

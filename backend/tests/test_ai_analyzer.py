@@ -3,7 +3,6 @@ Tests for ai_analyzer — response parsing and prompt construction.
 """
 
 import json
-import pytest
 from unittest.mock import MagicMock, patch
 
 from shared import ai_analyzer

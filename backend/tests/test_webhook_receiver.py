@@ -3,7 +3,6 @@ Tests for webhook_receiver — payload parsing and secret validation.
 """
 
 import json
-import pytest
 import azure.functions as func
 
 from webhook_receiver import _parse_run, _validate_secret, main

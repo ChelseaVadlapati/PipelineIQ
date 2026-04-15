@@ -7,7 +7,6 @@ The Cosmos DB change-feed on the `runs` container automatically triggers
 the pipeline_analyzer function.
 """
 
-import hashlib
 import hmac
 import json
 import logging

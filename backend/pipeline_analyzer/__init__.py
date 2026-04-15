@@ -8,7 +8,6 @@ calls GPT-4o for analysis, and persists an Analysis document.
 
 import asyncio
 import logging
-from typing import List
 
 import azure.functions as func
 

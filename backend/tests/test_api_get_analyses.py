@@ -3,7 +3,6 @@ Tests for api_get_analyses — query parameter parsing and response shape.
 """
 
 import json
-import pytest
 from unittest.mock import patch
 
 import azure.functions as func
