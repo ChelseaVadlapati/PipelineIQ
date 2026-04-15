@@ -223,7 +223,7 @@ stages:
                     inlineScript: |
                       az group create \
                         --name $(resourceGroup) \
-                        --location eastus \
+                        --location eastus2 \
                         --tags project=PipelineIQ environment=$(environment)
 
                 - task: AzureCLI@2
@@ -372,7 +372,7 @@ stages:
                     inlineScript: |
                       az group create \
                         --name $(resourceGroup) \
-                        --location eastus \
+                        --location eastus2 \
                         --tags project=PipelineIQ environment=$(environment)
 
                 - task: AzureCLI@2
