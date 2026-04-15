@@ -331,13 +331,12 @@ stages:
                         --output tsv)
                       echo "##vso[task.setvariable variable=swaToken;issecret=true]$token"
 
-                - task: AzureStaticWebApp@0
+                - script: |
+                    npx --yes @azure/static-web-apps-cli@latest deploy \
+                      "$(Pipeline.Workspace)/frontend-dist" \
+                      --deployment-token "$(swaToken)" \
+                      --env production
                   displayName: Deploy to Static Web Apps
-                  inputs:
-                    app_location: "$(Pipeline.Workspace)/frontend-dist"
-                    skip_app_build: true
-                    output_location: ""
-                    azure_static_web_apps_api_token: $(swaToken)
 
 # ── Stage 4: Deploy Prod ──────────────────────────────────────────────────────
 
@@ -483,10 +482,9 @@ stages:
                         --output tsv)
                       echo "##vso[task.setvariable variable=swaToken;issecret=true]$token"
 
-                - task: AzureStaticWebApp@0
+                - script: |
+                    npx --yes @azure/static-web-apps-cli@latest deploy \
+                      "$(Pipeline.Workspace)/frontend-dist" \
+                      --deployment-token "$(swaToken)" \
+                      --env production
                   displayName: Deploy to Static Web Apps
-                  inputs:
-                    app_location: "$(Pipeline.Workspace)/frontend-dist"
-                    skip_app_build: true
-                    output_location: ""
-                    azure_static_web_apps_api_token: $(swaToken)
