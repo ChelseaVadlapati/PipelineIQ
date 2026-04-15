@@ -2,6 +2,9 @@
 
 AI-powered pipeline intelligence for Azure DevOps. PipelineIQ receives webhook events from your pipelines, uses GPT-4o to analyze failures, and surfaces root causes and actionable recommendations in a clean dashboard.
 
+**Live dashboard:** https://proud-sea-04a379a0f.7.azurestaticapps.net  
+**Webhook URL:** https://pipelineiq-dev-functions.azurewebsites.net/api/webhook
+
 ---
 
 ## How it works
@@ -29,6 +32,8 @@ Azure DevOps ──webhook──▶ webhook_receiver (Azure Function)
                          React Dashboard
 ```
 
+---
+
 ## Project structure
 
 ```
@@ -43,27 +48,58 @@ PipelineIQ/
 │   ├── pipeline_analyzer/     # Cosmos DB change-feed trigger
 │   ├── api_get_analysis/      # GET /api/analyses/{id}
 │   ├── api_get_analyses/      # GET /api/analyses
+│   ├── tests/                 # pytest test suite
 │   ├── host.json
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── requirements-dev.txt
 ├── frontend/                  # React + Vite + Tailwind
 │   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── services/api.ts
-│   │   └── types/index.ts
+│   │   ├── components/        # StatusBadge, StatsBar, FilterBar, AnalysisRow, Header
+│   │   ├── pages/             # Dashboard, AnalysisPage
+│   │   ├── services/api.ts    # API client
+│   │   └── types/index.ts     # TypeScript types
 │   └── package.json
-└── infra/                     # Infrastructure as code (Terraform/Bicep)
+├── infra/                     # Bicep infrastructure
+│   ├── main.bicep
+│   ├── parameters/
+│   │   ├── dev.bicepparam
+│   │   └── prod.bicepparam
+│   └── modules/
+│       ├── cosmos.bicep
+│       ├── functions.bicep
+│       ├── monitoring.bicep
+│       ├── openai.bicep
+│       └── static-web-app.bicep
+└── azure-pipelines.yml        # CI/CD pipeline
 ```
+
+---
+
+## Deployed resources (dev)
+
+| Resource | Name |
+|---|---|
+| Resource group | `rg-pipelineiq-dev` |
+| Cosmos DB | `pipelineiq-dev-cosmos` |
+| Azure OpenAI (GPT-4o) | `pipelineiq-dev-openai` |
+| Function App | `pipelineiq-dev-functions` |
+| Static Web App | `pipelineiq-dev-frontend` |
+| App Insights | `pipelineiq-dev-insights` |
+| Region | `eastus2` |
+
+---
 
 ## Prerequisites
 
 - Python 3.11+
 - Node.js 20+
 - [Azure Functions Core Tools v4](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local)
-- [Azurite](https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite) (local storage emulator)
-- An Azure DevOps organization with a PAT scoped to **Build (Read)**
+- Azure CLI
+- An Azure DevOps organization with a PAT scoped to **Build (Read) + Code (Read & write)**
 - An Azure OpenAI resource with a `gpt-4o` deployment
-- An Azure Cosmos DB account (or use the emulator locally)
+- An Azure Cosmos DB account
+
+---
 
 ## Local development
 
@@ -72,11 +108,11 @@ PipelineIQ/
 ```bash
 cd backend
 cp local.settings.json.example local.settings.json
-# Fill in your values in local.settings.json
+# Fill in values from your deployed Azure resources
 
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 func start
 ```
@@ -88,81 +124,91 @@ The functions will be available at `http://localhost:7071/api/`.
 ```bash
 cd frontend
 npm install
-npm run dev
+VITE_API_BASE_URL=https://pipelineiq-dev-functions.azurewebsites.net/api npm run dev
 ```
 
-The dashboard runs at `http://localhost:3000`. API calls are proxied to the Functions host.
+The dashboard runs at `http://localhost:3000`.
 
-## Azure DevOps webhook setup
+### Running tests
 
-1. In your Azure DevOps project, go to **Project Settings → Service Hooks**.
-2. Create a new subscription for **Webhooks**.
-3. Select trigger: **Build completed**.
-4. Set the URL to your deployed function URL:
-   `https://<your-app>.azurewebsites.net/api/webhook?code=<function-key>`
-5. Add a custom header `X-Pipeline-Secret: <your-webhook-secret>` matching `WEBHOOK_SECRET` in settings.
+```bash
+# Backend
+cd backend
+pytest --tb=short
 
-## Environment variables
+# Frontend
+cd frontend
+npm test
+```
 
-| Variable | Description |
-|---|---|
-| `AZURE_DEVOPS_ORG_URL` | Your org URL, e.g. `https://dev.azure.com/myorg` |
-| `AZURE_DEVOPS_PAT` | Personal access token with Build (Read) scope |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI resource endpoint |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
-| `AZURE_OPENAI_DEPLOYMENT` | Deployment name (default: `gpt-4o`) |
-| `COSMOS_ENDPOINT` | Cosmos DB account endpoint |
-| `COSMOS_KEY` | Cosmos DB account key |
-| `COSMOS_DB` | Database name (default: `pipelineiq`) |
-| `COSMOS_CONTAINER` | Analyses container name (default: `analyses`) |
-| `CosmosDbConnectionString` | Full connection string for the change-feed trigger |
-| `WEBHOOK_SECRET` | Shared secret validated on incoming webhooks |
+---
 
 ## Deploy to Azure (Bicep)
 
-All Azure resources are defined in `infra/` using Bicep.
-
 ```bash
-# 1. Create a resource group
-az group create --name rg-pipelineiq-dev --location eastus
+# 1. Create resource group
+az group create --name rg-pipelineiq-dev --location eastus2
 
-# 2. Export secrets as env vars (never commit these)
+# 2. Export secrets
 export AZURE_DEVOPS_PAT=your-pat
-export WEBHOOK_SECRET=your-secret
+export WEBHOOK_SECRET=your-webhook-secret
 
-# 3. Deploy (takes ~3 minutes)
+# 3. Deploy all infrastructure (~5 minutes)
 az deployment group create \
   --resource-group rg-pipelineiq-dev \
   --template-file infra/main.bicep \
-  --parameters infra/parameters/dev.bicepparam
+  --parameters infra/parameters/dev.bicepparam \
+  --parameters devOpsPat="$AZURE_DEVOPS_PAT" webhookSecret="$WEBHOOK_SECRET"
 
-# 4. Deploy the backend code
+# 4. Deploy backend
 cd backend
-func azure functionapp publish $(az deployment group show \
-  -g rg-pipelineiq-dev -n main \
-  --query properties.outputs.functionAppName.value -o tsv)
+func azure functionapp publish pipelineiq-dev-functions
 
-# 5. Deploy the frontend
-cd frontend && npm run build
+# 5. Build and deploy frontend
+cd frontend
+VITE_API_BASE_URL=https://pipelineiq-dev-functions.azurewebsites.net/api npm run build
 npx @azure/static-web-apps-cli deploy dist \
-  --deployment-token $(az deployment group show \
-    -g rg-pipelineiq-dev -n main \
-    --query properties.outputs.swaDeploymentToken.value -o tsv)
+  --deployment-token <swa-token-from-deployment-output> \
+  --env production
 ```
 
-The deployment outputs the **webhook URL** to register in Azure DevOps and the **dashboard URL**.
+> **Note:** Azure OpenAI requires approved access — request it at https://aka.ms/oai/access before deploying. GPT-4o is supported in `eastus2`.
 
-> **Note:** Azure OpenAI requires approved access. Request it at https://aka.ms/oai/access before deploying. GPT-4o is available in `eastus`, `eastus2`, `swedencentral`, `westus`, and `westus3`.
+---
 
-## Cosmos DB containers
+## Azure DevOps webhook setup
 
-The Bicep deployment creates all containers automatically. When running **locally**, create these manually:
+1. Go to **Project Settings → Service Hooks → + Create subscription**
+2. Choose **Web Hooks** → Next
+3. Trigger: **Build completed** → Next
+4. URL: `https://pipelineiq-dev-functions.azurewebsites.net/api/webhook`
+5. Add HTTP header: `X-Pipeline-Secret: <your-webhook-secret>`
+6. Click **Finish**
 
-| Container | Partition key |
+---
+
+## CI/CD pipeline
+
+The `azure-pipelines.yml` defines 4 stages:
+
+| Stage | Trigger | What it does |
+|---|---|---|
+| **Test** | All branches + PRs | ruff lint + pytest + tsc + vitest |
+| **Build** | main only | vite build + zip backend |
+| **Deploy Dev** | main only | Bicep infra + func publish + SWA deploy |
+| **Deploy Prod** | main only, manual approval | Same as dev against prod resources |
+
+### One-time setup required in Azure DevOps
+
+| What | Where |
 |---|---|
-| `runs` | `/id` |
-| `analyses` | `/id` |
-| `leases` | `/id` (auto-created by change-feed trigger) |
+| Variable group `pipelineiq-dev-secrets` | Pipelines → Library |
+| Variable group `pipelineiq-prod-secrets` | Pipelines → Library |
+| Service connection `azure-dev` | Project Settings → Service Connections |
+| Service connection `azure-prod` | Project Settings → Service Connections |
+| Approval on `pipelineiq-prod` environment | Pipelines → Environments |
+
+---
 
 ## API reference
 
@@ -172,10 +218,38 @@ Returns paginated analyses with aggregate stats.
 
 Query params: `limit`, `offset`, `project`, `pipeline`, `result`, `severity`
 
+**Response:**
+```json
+{
+  "analyses": [...],
+  "stats": {
+    "total": 10,
+    "failed": 4,
+    "succeeded": 6,
+    "critical": 1,
+    "high_severity": 3
+  },
+  "pagination": { "limit": 50, "offset": 0, "returned": 10 }
+}
+```
+
 ### `GET /api/analyses/{id}`
 
-Returns a single analysis document.
+Returns a single analysis document with full AI insights.
 
 ### `POST /api/webhook`
 
-Receives Azure DevOps `build.complete` events. Requires header `X-Pipeline-Secret`.
+Receives Azure DevOps `build.complete` events.  
+Requires header: `X-Pipeline-Secret: <secret>`
+
+---
+
+## Cosmos DB containers
+
+All containers are created automatically by the Bicep deployment.
+
+| Container | Partition key | Purpose |
+|---|---|---|
+| `runs` | `/id` | Raw pipeline run events |
+| `analyses` | `/id` | AI-generated analyses |
+| `leases` | `/id` | Change-feed trigger leases |
