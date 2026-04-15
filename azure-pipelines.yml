@@ -240,6 +240,9 @@ stages:
                         --parameters \
                           devOpsPat="$(AZURE_DEVOPS_PAT)" \
                           webhookSecret="$(WEBHOOK_SECRET)"
+                  env:
+                    AZURE_DEVOPS_PAT: $(AZURE_DEVOPS_PAT)
+                    WEBHOOK_SECRET: $(WEBHOOK_SECRET)
 
       - deployment: BackendDev
         displayName: "Deploy backend (dev)"
@@ -389,6 +392,9 @@ stages:
                         --parameters \
                           devOpsPat="$(AZURE_DEVOPS_PAT)" \
                           webhookSecret="$(WEBHOOK_SECRET)"
+                  env:
+                    AZURE_DEVOPS_PAT: $(AZURE_DEVOPS_PAT)
+                    WEBHOOK_SECRET: $(WEBHOOK_SECRET)
 
       - deployment: BackendProd
         displayName: "Deploy backend (prod)"
