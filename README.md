@@ -1,9 +1,54 @@
 # PipelineIQ
 
-AI-powered pipeline intelligence for Azure DevOps. PipelineIQ receives webhook events from your pipelines, uses GPT-4o to analyze failures, and surfaces root causes and actionable recommendations in a clean dashboard.
+> **Stop digging through logs. Know exactly why your pipeline failed — in seconds.**
 
-**Live dashboard:** https://proud-sea-04a379a0f.7.azurestaticapps.net  
-**Webhook URL:** https://pipelineiq-dev-functions.azurewebsites.net/api/webhook
+When a CI/CD pipeline fails, engineers typically open Azure DevOps, hunt through thousands of lines of logs across multiple steps, piece together the root cause, and figure out a fix — all manually. For complex pipelines this can take 30–60 minutes per failure.
+
+PipelineIQ eliminates that. It listens to Azure DevOps webhook events, automatically fetches the logs and failed step timeline, and sends them to GPT-4o for analysis. Within seconds of a build completing, the dashboard shows you the root cause, affected steps, error snippets, and concrete fix recommendations — no log-digging required.
+
+---
+
+![PipelineIQ Dashboard](docs/screenshot.png)
+<!-- Replace with an actual screenshot: File → screenshot the live dashboard → save as docs/screenshot.png -->
+
+**Live dashboard:** [https://proud-sea-04a379a0f.7.azurestaticapps.net](https://proud-sea-04a379a0f.7.azurestaticapps.net)  
+**API base:** `https://pipelineiq-dev-functions.azurewebsites.net/api`  
+**Webhook URL:** `https://pipelineiq-dev-functions.azurewebsites.net/api/webhook`
+
+---
+
+## Tech stack
+
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Azure Functions](https://img.shields.io/badge/Azure_Functions-v4-0062AD?logo=azurefunctions&logoColor=white)
+![Cosmos DB](https://img.shields.io/badge/Cosmos_DB-NoSQL-0078D4?logo=microsoftazure&logoColor=white)
+![GPT-4o](https://img.shields.io/badge/GPT--4o-OpenAI-412991?logo=openai&logoColor=white)
+![Bicep](https://img.shields.io/badge/Infra-Bicep-0089D6?logo=microsoftazure&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?logo=tailwindcss&logoColor=white)
+
+| Layer | Technology |
+|---|---|
+| Backend | Python · Azure Functions v4 (serverless) |
+| AI | Azure OpenAI GPT-4o (structured JSON output) |
+| Database | Azure Cosmos DB (serverless, change-feed trigger) |
+| Frontend | React 18 · Vite · TypeScript · Tailwind CSS |
+| Infrastructure | Azure Bicep (IaC, dev + prod environments) |
+| CI/CD | Azure Pipelines (lint → test → build → deploy) |
+| Observability | Azure Application Insights |
+
+---
+
+## Key features
+
+- **Automatic failure analysis** — Cosmos DB change-feed triggers GPT-4o analysis the moment a failed run is stored; no polling needed
+- **Root cause + recommendations** — structured AI output includes severity rating, affected steps, error snippets, and actionable fix suggestions
+- **Filterable dashboard** — filter by project, pipeline, result, or severity; paginated list with aggregate stats
+- **Secure webhook ingestion** — HMAC-safe secret validation on every incoming event
+- **Full IaC** — one Bicep command provisions all Azure resources (Functions, Cosmos DB, OpenAI, Static Web App, App Insights)
+- **33 backend tests + frontend tests** — pytest with mocks for all Azure SDK calls; vitest + Testing Library for React components
+- **4-stage CI/CD pipeline** — ruff lint, pytest, tsc, vitest on every push; Bicep deploy + prod approval gate on main
 
 ---
 
@@ -77,7 +122,7 @@ PipelineIQ/
 
 ## Deployed resources (dev)
 
-| Resource | Name |
+| Resource | Name pattern |
 |---|---|
 | Resource group | `rg-pipelineiq-dev` |
 | Cosmos DB | `pipelineiq-dev-cosmos` |
