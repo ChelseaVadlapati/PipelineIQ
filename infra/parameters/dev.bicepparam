@@ -10,7 +10,7 @@ param openAiLocation = 'eastus2'
 param cosmosServerless = true
 
 // Azure DevOps — fill in before deploying
-param devOpsOrgUrl = 'https://dev.azure.com/your-org'
+param devOpsOrgUrl = 'https://dev.azure.com/chelseavadlapati'
 
 // Secrets — pass via --parameters on the CLI or store in a Key Vault reference:
 //   az deployment group create ... \
