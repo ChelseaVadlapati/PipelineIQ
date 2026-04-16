@@ -391,6 +391,8 @@ stages:
                         --template-file $(infraDir)/main.bicep \
                         --parameters $(infraDir)/parameters/prod.bicepparam \
                         --parameters \
+                          location="eastus2" \
+                          openAiLocation="eastus2" \
                           devOpsPat="$(AZURE_DEVOPS_PAT)" \
                           webhookSecret="$(WEBHOOK_SECRET)"
                   env:

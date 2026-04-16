@@ -2,8 +2,8 @@ using '../main.bicep'
 
 param environment = 'prod'
 
-param location = 'eastus'
-param openAiLocation = 'eastus'
+param location = 'eastus2'
+param openAiLocation = 'eastus2'
 
 // Provisioned throughput in prod (set cosmosServerless = false)
 param cosmosServerless = false
