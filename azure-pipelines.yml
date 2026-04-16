@@ -148,7 +148,7 @@ stages:
             workingDirectory: $(frontendDir)
             displayName: vite build
             env:
-              VITE_API_BASE_URL: "/api"
+              VITE_API_BASE_URL: "https://pipelineiq-dev-functions.azurewebsites.net/api"
 
           - task: PublishPipelineArtifact@1
             displayName: Publish frontend artifact
