@@ -320,23 +320,19 @@ stages:
                   displayName: Download frontend artifact
 
                 - task: AzureCLI@2
-                  displayName: Get SWA deployment token
+                  displayName: Deploy to Static Web Apps
                   inputs:
                     azureSubscription: azure-dev
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
-                      token=$(az deployment group show \
+                      token=$(az staticwebapp secrets list \
+                        --name pipelineiq-$(environment)-frontend \
                         --resource-group $(resourceGroup) \
-                        --name main \
-                        --query properties.outputs.swaDeploymentToken.value \
+                        --query "properties.apiKey" \
                         --output tsv)
-                      echo "##vso[task.setvariable variable=swaToken;issecret=true]$token"
-
-                - script: |
-                    npx --yes @azure/static-web-apps-cli@latest deploy \
-                      "$(Pipeline.Workspace)/frontend-dist" \
-                      --deployment-token "$(swaToken)" \
-                      --env production
-                  displayName: Deploy to Static Web Apps
+                      npx --yes @azure/static-web-apps-cli@latest deploy \
+                        "$(Pipeline.Workspace)/frontend-dist" \
+                        --deployment-token "$token" \
+                        --env production
 
