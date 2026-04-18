@@ -234,24 +234,21 @@ npx @azure/static-web-apps-cli deploy dist \
 
 ## CI/CD pipeline
 
-The `azure-pipelines.yml` defines 4 stages:
+The `azure-pipelines.yml` defines 3 stages:
 
 | Stage | Trigger | What it does |
 |---|---|---|
 | **Test** | All branches + PRs | ruff lint + pytest + tsc + vitest |
 | **Build** | main only | vite build + zip backend |
 | **Deploy Dev** | main only | Bicep infra + func publish + SWA deploy |
-| **Deploy Prod** | main only, manual approval | Same as dev against prod resources |
 
 ### One-time setup required in Azure DevOps
 
 | What | Where |
 |---|---|
 | Variable group `pipelineiq-dev-secrets` | Pipelines → Library |
-| Variable group `pipelineiq-prod-secrets` | Pipelines → Library |
 | Service connection `azure-dev` | Project Settings → Service Connections |
-| Service connection `azure-prod` | Project Settings → Service Connections |
-| Approval on `pipelineiq-prod` environment | Pipelines → Environments |
+| Environment `pipelineiq-dev` | Pipelines → Environments |
 
 ---
 
