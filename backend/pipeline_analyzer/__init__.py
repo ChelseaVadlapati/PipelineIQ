@@ -2,8 +2,8 @@
 pipeline_analyzer — Cosmos DB change-feed trigger
 
 Fires whenever a new document lands in the `runs` container.
-For failed / partially-succeeded runs it fetches Azure DevOps logs,
-calls GPT-4o for analysis, and persists an Analysis document.
+For failed, partially-succeeded, and cancelled runs it fetches Azure DevOps
+logs, calls GPT-4o for analysis, and persists an Analysis document.
 """
 
 import asyncio
@@ -16,7 +16,7 @@ from shared import cosmos_client, devops_client, ai_analyzer
 
 logger = logging.getLogger(__name__)
 
-_ANALYZE_RESULTS = {"failed", "partiallySucceeded"}
+_ANALYZE_RESULTS = {"failed", "partiallySucceeded", "canceled"}
 
 
 async def _analyze_run(run: dict) -> None:
