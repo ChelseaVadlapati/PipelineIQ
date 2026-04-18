@@ -9,7 +9,8 @@ PipelineIQ eliminates that. It listens to Azure DevOps webhook events, automatic
 ---
 
 ![PipelineIQ Dashboard](docs/screenshot.png)
-<!-- Replace with an actual screenshot: File → screenshot the live dashboard → save as docs/screenshot.png -->
+
+![Analysis Detail](docs/screenshot-detail.png)
 
 **Live dashboard:** [https://proud-sea-04a379a0f.7.azurestaticapps.net](https://proud-sea-04a379a0f.7.azurestaticapps.net)  
 **API base:** `https://pipelineiq-dev-functions.azurewebsites.net/api`  
